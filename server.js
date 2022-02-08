@@ -7,6 +7,11 @@ const Busboy = require('busboy');
 const app = express();
 const getFileDetails = promisify(fs.stat);
 
+// DB
+const levelup = require('levelup')
+const leveldown = require('leveldown')
+const db = levelup(leveldown('./hashesdb'))
+
 const uniqueAlphaNumericId = (() => {
 	const heyStack = '0123456789abcdefghijklmnopqrstuvwxyz';
 	const randomInt = () => Math.floor(Math.random() * Math.floor(heyStack.length));
@@ -20,14 +25,47 @@ app.use(express.json());
 app.use(cors());
 app.use(express.static('public'))
 
+function fileExist(fileHash, callback) {
+	db.get(fileHash, function (err, value) {
+		if (err) {
+			callback(false)
+		} else {
+			callback(true)
+		}
+	})
+}
+
+function uploadComplete(fileHash, callback) {
+	db.put(fileHash, '1', callback)
+}
+
 app.post('/upload-request', (req, res) => {
-	if (!req.body || !req.body.fileName) {
-		res.status(400).json({ message: 'Missing "fileName"' });
-	} else {
-		const fileId = uniqueAlphaNumericId();
-		fs.createWriteStream(getFilePath(req.body.fileName, fileId), { flags: 'w' });
-		res.status(200).json({ fileId });
+	if (!req.body) {
+		res.status(400).json({ message: 'Missing parameters' });
+		return;
 	}
+
+	if (!req.body.fileName) {
+		res.status(400).json({ message: 'Missing "fileName"' });
+		return;
+	}
+
+	if (!req.body.fileHash) {
+		res.status(400).json({ message: 'Missing "fileHash"' });
+		return;
+	}
+
+	fileExist(req.body.fileHash, (isFileExist) => {
+		if (isFileExist) {
+			res.status(400).json({ message: 'exist' });
+		} else {
+			uploadComplete(req.body.fileHash)
+
+			const fileId = uniqueAlphaNumericId();
+			fs.createWriteStream(getFilePath(req.body.fileName, fileId), { flags: 'w' });
+			res.status(200).json({ fileId });
+		}
+	});
 });
 
 app.get('/upload-status', (req, res) => {
